@@ -7,7 +7,7 @@
  */
 static char *font = "mononoki Nerd Font Mono:size=14:antialias=true:autohint=true";
 //static char *font = "lucy tewihm:style=Regular:fontsize=9";
-static int borderpx = 2;
+static int borderpx = 0;
 
 /*
  * What program is execed by st depends of these precedence rules:
@@ -50,7 +50,7 @@ static unsigned int actionfps = 30;
  * blinking timeout (set to 0 to disable blinking) for the terminal blinking
  * attribute.
  */
-static unsigned int blinktimeout = 800;
+static unsigned int blinktimeout = 0;
 
 /*
  * thickness of underline and bar cursors
