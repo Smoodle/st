@@ -5,20 +5,21 @@
  *
  * font: see http://freedesktop.org/software/fontconfig/fontconfig-user.html
  */
-static char *font = "mononoki Nerd Font Mono:size=14:antialias=true:autohint=true";
-//static char *font = "lucy tewihm:style=Regular:fontsize=9";
-static int borderpx = 0;
+static char *font = "mononoki Nerd Font:pixelsize=14:antialias=true:autohint=true";
+static int borderpx = 2;
 
 /*
  * What program is execed by st depends of these precedence rules:
  * 1: program passed with -e
- * 2: utmp option
+ * 2: scroll and/or utmp
  * 3: SHELL environment variable
  * 4: value of shell in /etc/passwd
  * 5: value of shell in config.h
  */
 static char *shell = "/bin/sh";
 char *utmp = NULL;
+/* scroll program: to enable use a string like "scroll" */
+char *scroll = NULL;
 char *stty_args = "stty raw pass8 nl -echo -iexten -cstopb 38400";
 
 /* identification sequence returned in DA and DECID */
@@ -42,15 +43,24 @@ static unsigned int tripleclicktimeout = 600;
 /* alt screens */
 int allowaltscreen = 1;
 
-/* frames per second st should at maximum draw to the screen */
-static unsigned int xfps = 60;
-static unsigned int actionfps = 30;
+/* allow certain non-interactive (insecure) window operations such as:
+   setting the clipboard text */
+int allowwindowops = 0;
+
+/*
+ * draw latency range in ms - from new content/keypress/etc until drawing.
+ * within this range, st draws when content stops arriving (idle). mostly it's
+ * near minlatency, but it waits longer for slow updates to avoid partial draw.
+ * low minlatency will tear/flicker more, as it can "detect" idle too early.
+ */
+static double minlatency = 8;
+static double maxlatency = 33;
 
 /*
  * blinking timeout (set to 0 to disable blinking) for the terminal blinking
  * attribute.
  */
-static unsigned int blinktimeout = 0;
+static unsigned int blinktimeout = 800;
 
 /*
  * thickness of underline and bar cursors
@@ -63,7 +73,7 @@ static unsigned int cursorthickness = 2;
  *    Bold affects lines thickness if boxdraw_bold is not 0. Italic is ignored.
  * 0: disable (render all U25XX glyphs normally from the font).
  */
-const int boxdraw = 1;
+const int boxdraw = 0;
 const int boxdraw_bold = 0;
 
 /* braille (U28XX):  1: render as adjacent "pixels",  0: use font */
@@ -95,35 +105,7 @@ char *termname = "st-256color";
  */
 unsigned int tabspaces = 8;
 
-///* Terminal colors (16 first used in escape sequence) */
-//static const char *colorname[] = {
-//	/* 8 normal colors */
-//	"#3b4252", /* black   */
-//	"#bf616a", /* red     */
-//	"#a3be8c", /* green   */
-//	"#ebcb8b", /* yellow  */
-//	"#81a1c1", /* blue    */
-//	"#b48ead", /* magenta */
-//	"#88c0d0", /* cyan    */
-//	"#e5e9f0", /* white   */
-//
-//	/* 8 bright colors */
-//	"#4c566a", /* black   */
-//	"#bf616a", /* red     */
-//	"#a3be8c", /* green   */
-//	"#ebcb8b", /* yellow  */
-//	"#81a1c1", /* blue    */
-//	"#b48ead", /* magenta */
-//	"#8fbcbb", /* cyan    */
-//	"#eceff4", /* white   */
-//
-//	[255] = 0,
-//
-//	/* more colors can be added after 255 to use with DefaultXX */
-//	"#2e3440", /* background */
-//	"#d8dee9", /* foreground */
-//};
-
+/* Terminal colors (16 first used in escape sequence) */
 static const char *colorname[] = {
   /* 8 normal colors */
   [0] = "#1d1f21", /* hard contrast: #1d2021 / soft contrast: #32302f */
@@ -154,21 +136,10 @@ static const char *colorname[] = {
   "#ebdbb2", /* 259 -> fg */
 };
 
-
 /*
  * Default colors (colorname index)
  * foreground, background, cursor, reverse cursor
  */
-//unsigned int defaultfg = 7;
-//unsigned int defaultbg = 0;
-//static unsigned int defaultcs = 256;
-//static unsigned int defaultrcs = 257;
-
-//unsigned int defaultfg = 257;
-//unsigned int defaultbg = 258;
-//static unsigned int defaultcs = 256;
-//static unsigned int defaultrcs = 257;
-
 unsigned int defaultfg = 259;
 unsigned int defaultbg = 258;
 unsigned int defaultcs = 256;
@@ -250,10 +221,12 @@ ResourcePref resources[] = {
  */
 static MouseShortcut mshortcuts[] = {
 	/* mask                 button   function        argument       release */
-	{ ShiftMask,            Button4, kscrollup,      {.i = 1} },
+  	{ ShiftMask,            Button4, kscrollup,      {.i = 1} },
 	{ ShiftMask,            Button5, kscrolldown,    {.i = 1} },
 	{ XK_ANY_MOD,           Button2, selpaste,       {.i = 0},      1 },
+	{ ShiftMask,            Button4, ttysend,        {.s = "\033[5;2~"} },
 	{ XK_ANY_MOD,           Button4, ttysend,        {.s = "\031"} },
+	{ ShiftMask,            Button5, ttysend,        {.s = "\033[6;2~"} },
 	{ XK_ANY_MOD,           Button5, ttysend,        {.s = "\005"} },
 };
 
@@ -267,8 +240,8 @@ static Shortcut shortcuts[] = {
 	{ ControlMask,          XK_Print,       toggleprinter,  {.i =  0} },
 	{ ShiftMask,            XK_Print,       printscreen,    {.i =  0} },
 	{ XK_ANY_MOD,           XK_Print,       printsel,       {.i =  0} },
-	{ MODKEY,               XK_plus,        zoom,           {.f = +1} },
-	{ MODKEY,               XK_minus,       zoom,           {.f = -1} },
+	{ TERMMOD,              XK_Prior,       zoom,           {.f = +1} },
+	{ TERMMOD,              XK_Next,        zoom,           {.f = -1} },
 	{ TERMMOD,              XK_Home,        zoomreset,      {.f =  0} },
 	{ TERMMOD,              XK_C,           clipcopy,       {.i =  0} },
 	{ TERMMOD,              XK_V,           clippaste,      {.i =  0} },
